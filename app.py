@@ -10,18 +10,20 @@ st.title("📊 Stock Watchlist — Golden/Death Cross Tracker")
 # ------------------------------
 # Initialize Firebase
 # ------------------------------
+firebase_creds = dict(st.secrets["firebase"])  # Make sure secrets.toml has nested [firebase] keys
+
 if not firebase_admin._apps:
-    cred = credentials.Certificate(st.secrets["firebase"])
+    cred = credentials.Certificate(firebase_creds)
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
 
 # ------------------------------
-# Helper to get watchlist
+# Load watchlist from Firestore
 # ------------------------------
 def get_watchlist():
-    watchlist_ref = db.collection("watchlist").stream()
-    return [doc.to_dict()["symbol"] for doc in watchlist_ref]
+    docs = db.collection("watchlist").stream()
+    return [doc.to_dict()["symbol"] for doc in docs]
 
 watchlist = get_watchlist()
 
@@ -41,7 +43,7 @@ if query:
             if ticker not in watchlist:
                 db.collection("watchlist").add({"symbol": ticker})
                 st.success(f"✅ {ticker} added to watchlist!")
-                watchlist = get_watchlist()  # refresh list
+                watchlist.append(ticker)  # Update local list immediately
             else:
                 st.info(f"{ticker} is already in your watchlist.")
     else:
@@ -59,11 +61,12 @@ if watchlist:
     remove_ticker = st.selectbox("Select a ticker to remove:", [""] + watchlist)
     if st.button("Remove"):
         if remove_ticker:
+            # Delete from Firestore
             docs = db.collection("watchlist").where("symbol", "==", remove_ticker).stream()
             for doc in docs:
                 doc.reference.delete()
             st.warning(f"❌ {remove_ticker} removed from watchlist.")
-            watchlist = get_watchlist()  # refresh list
+            watchlist.remove(remove_ticker)
 else:
     st.info("Your watchlist is empty. Add some tickers above 👆")
 
@@ -110,7 +113,6 @@ if watchlist:
             else:
                 return "color: white;"
 
-        # Format to 2 decimal places for numeric columns
         styled_df = (
             df.style
             .map(color_status, subset=["Status"])
