@@ -76,7 +76,7 @@ def _analyze_single_ticker(ticker, df):
 
 
 @st.cache_data(ttl=CACHE_TTL)
-def analyze_stocks(tickers, period="2y"):
+def analyze_stocks(tickers, period="2y", interval="1d"):
     """Efficiently analyze hundreds of tickers."""
     results = {}
     if not tickers:

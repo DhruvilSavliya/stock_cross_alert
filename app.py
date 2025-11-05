@@ -79,7 +79,7 @@ if watchlist:
 
     if st.button("Analyze Watchlist"):
         with st.spinner("Analyzing tickers... please wait ⏳"):
-            results = analyze_stocks(watchlist, period="1y")  # ensure enough data for SMA200
+            results = analyze_stocks(watchlist, period="2y", interval="1d")  # ensure enough data for SMA200
 
         rows = []
         for ticker, info in results.items():
