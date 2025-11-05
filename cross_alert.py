@@ -54,8 +54,8 @@ def _analyze_single_ticker(ticker, df):
         return {"status": "No Data", "data": None}
 
     df = df.dropna().copy()
-    df["SMA50"] = df["Close"].rolling(50).mean().round(2)
-    df["SMA200"] = df["Close"].rolling(200).mean().round(2)
+    df["SMA50"] = df["Close"].rolling(50).mean()
+    df["SMA200"] = df["Close"].rolling(200).mean()
 
     if len(df) < MIN_DAYS:
         return {"status": "Insufficient Data", "data": df}
