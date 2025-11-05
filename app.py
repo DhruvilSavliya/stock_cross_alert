@@ -1,19 +1,29 @@
 import streamlit as st
-import json
 import pandas as pd
 from cross_alert import analyze_stocks, search_ticker
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 st.set_page_config(page_title="Stock Watchlist", page_icon="📈", layout="wide")
 st.title("📊 Stock Watchlist — Golden/Death Cross Tracker")
 
 # ------------------------------
-# Load watchlist
+# Initialize Firebase
 # ------------------------------
-try:
-    with open("watchlist.json", "r") as f:
-        watchlist = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    watchlist = []
+if not firebase_admin._apps:
+    cred = credentials.Certificate(st.secrets["firebase"])
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+# ------------------------------
+# Helper to get watchlist
+# ------------------------------
+def get_watchlist():
+    watchlist_ref = db.collection("watchlist").stream()
+    return [doc.to_dict()["symbol"] for doc in watchlist_ref]
+
+watchlist = get_watchlist()
 
 # ------------------------------
 # Search box for ticker
@@ -29,37 +39,31 @@ if query:
         if st.button("Add Selected"):
             ticker = selected.split(" — ")[0]
             if ticker not in watchlist:
-                watchlist.append(ticker)
-                with open("watchlist.json", "w") as f:
-                    json.dump(watchlist, f)
+                db.collection("watchlist").add({"symbol": ticker})
                 st.success(f"✅ {ticker} added to watchlist!")
+                watchlist = get_watchlist()  # refresh list
             else:
                 st.info(f"{ticker} is already in your watchlist.")
     else:
         st.warning("No matching tickers found. Try a different name.")
 
-# Load watchlist
-try:
-    with open("watchlist.json", "r") as f:
-        watchlist = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    watchlist = []
-
+# ------------------------------
+# Manage Watchlist
+# ------------------------------
 st.subheader("🗑️ Manage Watchlist")
 
 if watchlist:
-    # Show all tickers in the watchlist
     st.write("**Current Watchlist:**")
     st.write(", ".join(watchlist))
 
-    # Dropdown to remove ticker
     remove_ticker = st.selectbox("Select a ticker to remove:", [""] + watchlist)
     if st.button("Remove"):
         if remove_ticker:
-            watchlist.remove(remove_ticker)
-            with open("watchlist.json", "w") as f:
-                json.dump(watchlist, f)
+            docs = db.collection("watchlist").where("symbol", "==", remove_ticker).stream()
+            for doc in docs:
+                doc.reference.delete()
             st.warning(f"❌ {remove_ticker} removed from watchlist.")
+            watchlist = get_watchlist()  # refresh list
 else:
     st.info("Your watchlist is empty. Add some tickers above 👆")
 
