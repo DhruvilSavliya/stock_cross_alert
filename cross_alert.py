@@ -87,7 +87,7 @@ def analyze_stocks(tickers, period="2y", interval="1d"):
 
     all_data = {}
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(_download_batch, batch, period): batch for batch in batches}
+        futures = {executor.submit(_download_batch, batch, period, interval): batch for batch in batches}
         for future in as_completed(futures):
             batch = futures[future]
             data = future.result()
