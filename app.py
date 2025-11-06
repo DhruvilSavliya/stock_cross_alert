@@ -77,7 +77,20 @@ if watchlist:
     st.divider()
     st.subheader("📈 Watchlist Analysis")
 
-    if st.button("Analyze Watchlist"):
+    # --- Compact buttons side by side ---
+    col1, col2, col3, col4 = st.columns([0.3, 1, 1, 0.3])  # small spacing columns
+    with col1:
+        analyze_clicked = st.button("📊 Analyze Watchlist")
+    with col4:
+        refresh_clicked = st.button("🔄 Refresh Data")
+
+    # --- Handle refresh ---
+    if refresh_clicked:
+        st.cache_data.clear()
+        st.success("✅ Cache cleared — next analysis will fetch fresh data.")
+
+    # --- Handle analysis ---
+    if analyze_clicked:
         with st.spinner("Analyzing tickers... please wait ⏳"):
             results = analyze_stocks(watchlist, period="2y", interval="1d")  # ensure enough data for SMA200
 
