@@ -6,6 +6,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from yahooquery import search
 
+
 # ------------------------------
 # CONFIG
 # ------------------------------
@@ -20,20 +21,15 @@ pd.set_option('display.max_columns', 15)
 pd.set_option('display.width', 1000)
 pd.set_option('display.max_colwidth', None)
 
-# ------------------------------
-# Logging helper
-# ------------------------------
-def log(message):
-    """Append message to session_state log and display in Streamlit."""
-    if "log_area" not in st.session_state:
-        st.session_state["log_area"] = []
-    st.session_state["log_area"].append(str(message))
-    st.write(str(message))  # Show in UI
+#--- CONFIGRATION ---
+# stocks = ["AAPL", "MSFT", "GOOGL", "NOK"]
+# stocks = ["AAPL"]
+# short_window = 50
+# long_window = 200
 
-# ------------------------------
-# Download batch of tickers
-# ------------------------------
+
 def _download_batch(tickers, period="2y", interval="1d"):
+    """Download a batch of tickers from Yahoo Finance."""
     try:
         data = yf.download(
             tickers=tickers,
@@ -44,18 +40,17 @@ def _download_batch(tickers, period="2y", interval="1d"):
             threads=True,
             progress=False
         )
-        log(f"✅ Downloaded batch: {tickers}")
         return data
     except Exception as e:
-        log(f"❌ Error fetching batch {tickers}: {e}")
+        print(f"Error fetching batch: {e}")
         return pd.DataFrame()
 
-# ------------------------------
-# Analyze single ticker
-# ------------------------------
+
+
+
 def _analyze_single_ticker(ticker, df):
+    """Compute SMA50/SMA200 and detect Golden/Death Cross."""
     if df.empty or "Close" not in df.columns:
-        log(f"⚠️ {ticker}: No data available")
         return {"status": "No Data", "data": None}
 
     df = df.dropna().copy()
@@ -63,14 +58,10 @@ def _analyze_single_ticker(ticker, df):
     df["SMA200"] = df["Close"].rolling(200).mean()
 
     if len(df) < MIN_DAYS:
-        log(f"⚠️ {ticker}: Insufficient data (only {len(df)} days)")
         return {"status": "Insufficient Data", "data": df}
 
     prev_50, prev_200 = df["SMA50"].iloc[-2], df["SMA200"].iloc[-2]
     last_50, last_200 = df["SMA50"].iloc[-1], df["SMA200"].iloc[-1]
-
-    # Log the last few MA values for debugging
-    log(f"{ticker}: Last Close={df['Close'].iloc[-1]:.2f}, SMA50={last_50:.2f}, SMA200={last_200:.2f}")
 
     if np.isnan(prev_50) or np.isnan(prev_200) or np.isnan(last_50) or np.isnan(last_200):
         status = "Insufficient Data"
@@ -83,14 +74,12 @@ def _analyze_single_ticker(ticker, df):
 
     return {"status": status, "data": df}
 
-# ------------------------------
-# Analyze multiple tickers
-# ------------------------------
+
 @st.cache_data(ttl=CACHE_TTL)
 def analyze_stocks(tickers, period="2y", interval="1d"):
+    """Efficiently analyze hundreds of tickers."""
     results = {}
     if not tickers:
-        log("⚠️ No tickers to analyze")
         return results
 
     num_batches = math.ceil(len(tickers) / BATCH_SIZE)
@@ -115,11 +104,13 @@ def analyze_stocks(tickers, period="2y", interval="1d"):
 
     return results
 
-# ------------------------------
-# Search tickers
-# ------------------------------
+
 @st.cache_data(ttl=3600)
 def search_ticker(query, limit=10):
+    """
+    Search for ticker symbols by company name or symbol.
+    Returns a list of (symbol, name) tuples.
+    """
     if not query or len(query) < 2:
         return []
 
@@ -132,8 +123,7 @@ def search_ticker(query, limit=10):
             name = q.get("shortname") or q.get("longname") or ""
             if symbol and name:
                 tickers.append(f"{symbol} — {name}")
-        log(f"🔍 Search '{query}' found: {tickers}")
         return tickers
     except Exception as e:
-        log(f"❌ Search error for '{query}': {e}")
+        print(f"Search error: {e}")
         return []
