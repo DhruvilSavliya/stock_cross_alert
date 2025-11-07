@@ -4,6 +4,9 @@ from cross_alert import analyze_stocks, search_ticker
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+# ------------------------------
+# Streamlit page config
+# ------------------------------
 st.set_page_config(page_title="Stock Watchlist", page_icon="📈", layout="wide")
 st.title("📊 Stock Watchlist — Golden/Death Cross Tracker")
 
@@ -19,16 +22,22 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 # ------------------------------
-# Load watchlist from Firestore
+# Load and clean watchlist from Firestore
 # ------------------------------
 def get_watchlist():
+    """Load tickers from Firebase and clean them."""
     docs = db.collection("watchlist").stream()
-    return [doc.to_dict()["symbol"] for doc in docs]
+    watchlist = [
+        doc.to_dict()["symbol"].strip().upper()
+        for doc in docs
+        if doc.to_dict().get("symbol")
+    ]
+    return watchlist
 
 watchlist = get_watchlist()
 
 # ------------------------------
-# Search box for ticker
+# Search box to add tickers
 # ------------------------------
 st.subheader("🔍 Add Tickers to Your Watchlist")
 
@@ -39,18 +48,18 @@ if query:
     if suggestions:
         selected = st.selectbox("Select from suggestions:", suggestions)
         if st.button("Add Selected"):
-            ticker = selected.split(" — ")[0]
+            ticker = selected.split(" — ")[0].strip().upper()
             if ticker not in watchlist:
                 db.collection("watchlist").add({"symbol": ticker})
                 st.success(f"✅ {ticker} added to watchlist!")
-                watchlist.append(ticker)  # Update local list immediately
+                watchlist.append(ticker)
             else:
                 st.info(f"{ticker} is already in your watchlist.")
     else:
         st.warning("No matching tickers found. Try a different name.")
 
 # ------------------------------
-# Manage Watchlist
+# Manage watchlist
 # ------------------------------
 st.subheader("🗑️ Manage Watchlist")
 
@@ -61,7 +70,6 @@ if watchlist:
     remove_ticker = st.selectbox("Select a ticker to remove:", [""] + watchlist)
     if st.button("Remove"):
         if remove_ticker:
-            # Delete from Firestore
             docs = db.collection("watchlist").where("symbol", "==", remove_ticker).stream()
             for doc in docs:
                 doc.reference.delete()
@@ -76,25 +84,24 @@ else:
 if watchlist:
     st.divider()
     st.subheader("📈 Watchlist Analysis")
-    # --- Buttons side by side ---
-    col1, col2, col3, col4 = st.columns([0.3,1,1,0.3]) # Wider column for Analyze, smaller for Refresh
 
+    col1, col2, col3, col4 = st.columns([0.3, 1, 1, 0.3])
     with col1:
-        analyze_clicked = st.button("📊 Analyze Watchlist", use_container_width=True)
-
+        analyze_clicked = st.button("📊 Analyze Watchlist")
     with col4:
-        refresh_clicked = st.button("🔄 Refresh Data", use_container_width=True)
+        refresh_clicked = st.button("🔄 Refresh Data")
 
+    # Refresh cache
     if refresh_clicked:
         st.cache_data.clear()
-        from cross import analyze_stocks, search_ticker
         analyze_stocks.clear()
         search_ticker.clear()
-        st.success("Cache cleared — next analysis will fetch fresh data!")
+        st.success("✅ Cache cleared — next analysis will fetch fresh data.")
 
+    # Analyze watchlist
     if analyze_clicked:
         with st.spinner("Analyzing tickers... please wait ⏳"):
-            results = analyze_stocks(watchlist, period="2y", interval ="1d")  # ensure enough data for SMA200
+            results = analyze_stocks(watchlist, period="2y", interval="1d")
 
         rows = []
         for ticker, info in results.items():
@@ -117,7 +124,7 @@ if watchlist:
 
         df = pd.DataFrame(rows)
 
-        # Define color style for Status
+        # Color style for Status
         def color_status(val):
             if "Golden" in str(val):
                 return "color: green; font-weight: bold;"
@@ -128,7 +135,6 @@ if watchlist:
             else:
                 return "color: white;"
 
-        # Format to 2 decimal places for numeric columns
         styled_df = (
             df.style
             .map(color_status, subset=["Status"])
