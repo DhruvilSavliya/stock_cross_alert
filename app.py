@@ -87,6 +87,9 @@ if watchlist:
     # --- Handle refresh ---
     if refresh_clicked:
         st.cache_data.clear()
+        from cross_alert import analyze_stocks, search_ticker
+        analyze_stocks.clear()
+        search_ticker.clear()
         st.success("✅ Cache cleared — next analysis will fetch fresh data.")
 
     # --- Handle analysis ---
