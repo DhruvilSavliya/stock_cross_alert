@@ -29,7 +29,7 @@ pd.set_option('display.max_colwidth', None)
 
 
 def _download_batch(tickers, period="2y", interval="1d"):
-    """Download a batch of tickers from Yahoo Finance and normalize data."""
+    """Download batch of tickers, always return Close prices as DataFrames."""
     try:
         data = yf.download(
             tickers=tickers,
@@ -40,25 +40,22 @@ def _download_batch(tickers, period="2y", interval="1d"):
             threads=True,
             progress=False
         )
-        # Normalize each ticker into a dictionary
         all_data = {}
+
         if isinstance(data.columns, pd.MultiIndex):
             # Multiple tickers
             for t in tickers:
                 if t in data.columns.get_level_values(0):
-                    df = data[t].copy()
-                    if "Adj Close" in df.columns:
-                        df["Close"] = df["Adj Close"]
-                    df = df[["Close"]].dropna()
+                    df = data[t]["Close"].copy()  # <- pick only Close column
+                    df = df.dropna().to_frame()  # make it a DataFrame
                     all_data[t] = df
         else:
             # Single ticker
-            df = data.copy()
-            if "Adj Close" in df.columns:
-                df["Close"] = df["Adj Close"]
-            df = df[["Close"]].dropna()
+            df = data["Close"].copy().dropna().to_frame()
             all_data[tickers[0]] = df
+
         return all_data
+
     except Exception as e:
         print(f"Error fetching batch: {e}")
         return {t: pd.DataFrame() for t in tickers}
