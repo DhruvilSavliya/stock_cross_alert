@@ -12,7 +12,7 @@ from yahooquery import search
 # ------------------------------
 BATCH_SIZE = 100
 MAX_WORKERS = 5
-CACHE_TTL = 3600  # 1 hour
+CACHE_TTL = 300  # 5 minutes
 MIN_DAYS = 200
 # ------------------------------
 
