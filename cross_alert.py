@@ -29,21 +29,40 @@ pd.set_option('display.max_colwidth', None)
 
 
 def _download_batch(tickers, period="2y", interval="1d"):
-    """Download a batch of tickers from Yahoo Finance."""
+    """Download a batch of tickers from Yahoo Finance and normalize data."""
     try:
         data = yf.download(
             tickers=tickers,
             period=period,
             interval=interval,
             group_by="ticker",
-            auto_adjust=True,
+            auto_adjust=False,
             threads=True,
             progress=False
         )
-        return data
+        # Normalize each ticker into a dictionary
+        all_data = {}
+        if isinstance(data.columns, pd.MultiIndex):
+            # Multiple tickers
+            for t in tickers:
+                if t in data.columns.get_level_values(0):
+                    df = data[t].copy()
+                    if "Adj Close" in df.columns:
+                        df["Close"] = df["Adj Close"]
+                    df = df[["Close"]].dropna()
+                    all_data[t] = df
+        else:
+            # Single ticker
+            df = data.copy()
+            if "Adj Close" in df.columns:
+                df["Close"] = df["Adj Close"]
+            df = df[["Close"]].dropna()
+            all_data[tickers[0]] = df
+        return all_data
     except Exception as e:
         print(f"Error fetching batch: {e}")
-        return pd.DataFrame()
+        return {t: pd.DataFrame() for t in tickers}
+
 
 
 
@@ -77,7 +96,7 @@ def _analyze_single_ticker(ticker, df):
 
 @st.cache_data(ttl=CACHE_TTL)
 def analyze_stocks(tickers, period="2y", interval="1d"):
-    """Efficiently analyze hundreds of tickers."""
+    """Efficiently analyze tickers with proper Close column."""
     results = {}
     if not tickers:
         return results
@@ -89,20 +108,15 @@ def analyze_stocks(tickers, period="2y", interval="1d"):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(_download_batch, batch, period, interval): batch for batch in batches}
         for future in as_completed(futures):
-            batch = futures[future]
-            data = future.result()
-            if isinstance(data.columns, pd.MultiIndex):
-                for t in batch:
-                    if t in data.columns.get_level_values(0):
-                        all_data[t] = data[t].dropna()
-            else:
-                all_data[batch[0]] = data.dropna()
+            batch_data = future.result()
+            all_data.update(batch_data)  # already normalized
 
     for ticker in tickers:
         df = all_data.get(ticker, pd.DataFrame())
         results[ticker] = _analyze_single_ticker(ticker, df)
 
     return results
+
 
 
 @st.cache_data(ttl=3600)
