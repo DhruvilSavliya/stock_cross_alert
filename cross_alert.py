@@ -6,7 +6,6 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from yahooquery import search
 
-
 # ------------------------------
 # CONFIG
 # ------------------------------
@@ -14,19 +13,13 @@ BATCH_SIZE = 100
 MAX_WORKERS = 5
 CACHE_TTL = 3600  # 1 hour
 MIN_DAYS = 200
+RSI_PERIOD = 14
 # ------------------------------
 
 pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', 15)
 pd.set_option('display.width', 1000)
 pd.set_option('display.max_colwidth', None)
-
-#--- CONFIGRATION ---
-# stocks = ["AAPL", "MSFT", "GOOGL", "NOK"]
-# stocks = ["AAPL"]
-# short_window = 50
-# long_window = 200
-
 
 def _download_batch(tickers, period="2y", interval="1d"):
     """Download a batch of tickers from Yahoo Finance."""
@@ -45,35 +38,77 @@ def _download_batch(tickers, period="2y", interval="1d"):
         print(f"Error fetching batch: {e}")
         return pd.DataFrame()
 
+def _compute_rsi(series, period=RSI_PERIOD):
+    """Compute RSI for a series of closing prices using Wilder's smoothing method."""
+    if series.empty:
+        return pd.Series()
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
+    # Use Wilder's smoothing method
+    gain_ewm = gain.ewm(alpha=1/period, adjust=False).mean()
+    loss_ewm = loss.ewm(alpha=1/period, adjust=False).mean()
 
+    rs = gain_ewm / loss_ewm
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
 def _analyze_single_ticker(ticker, df):
-    """Compute SMA50/SMA200 and detect Golden/Death Cross."""
+    """Compute SMA50/SMA200, RSI, and detect Golden/Death Cross."""
     if df.empty or "Close" not in df.columns:
-        return {"status": "No Data", "data": None}
+        return {"status": "No Data", "current_cross": None, "data": None, "ai_signal": None}
 
     df = df.dropna().copy()
     df["SMA50"] = df["Close"].rolling(50).mean()
     df["SMA200"] = df["Close"].rolling(200).mean()
+    df["RSI14"] = _compute_rsi(df["Close"])
 
     if len(df) < MIN_DAYS:
-        return {"status": "Insufficient Data", "data": df}
-
-    prev_50, prev_200 = df["SMA50"].iloc[-2], df["SMA200"].iloc[-2]
-    last_50, last_200 = df["SMA50"].iloc[-1], df["SMA200"].iloc[-1]
-
-    if np.isnan(prev_50) or np.isnan(prev_200) or np.isnan(last_50) or np.isnan(last_200):
+        current_cross = None
         status = "Insufficient Data"
-    elif prev_50 < prev_200 and last_50 > last_200:
-        status = "Golden Cross"
-    elif prev_50 > prev_200 and last_50 < last_200:
-        status = "Death Cross"
     else:
-        status = "No Cross"
+        prev_50, prev_200 = df["SMA50"].iloc[-2], df["SMA200"].iloc[-2]
+        last_50, last_200 = df["SMA50"].iloc[-1], df["SMA200"].iloc[-1]
 
-    return {"status": status, "data": df}
+        # Status for "today's cross"
+        if np.isnan(prev_50) or np.isnan(prev_200) or np.isnan(last_50) or np.isnan(last_200):
+            status = "Insufficient Data"
+        elif prev_50 < prev_200 and last_50 > last_200:
+            status = "Golden Cross"
+        elif prev_50 > prev_200 and last_50 < last_200:
+            status = "Death Cross"
+        else:
+            status = "No Cross"
 
+        # Current cross (whether ticker is in golden/death right now)
+        if last_50 > last_200:
+            current_cross = "Golden Cross"
+        elif last_50 < last_200:
+            current_cross = "Death Cross"
+        else:
+            current_cross = "No Cross"
+
+    # AI signal based on current cross + RSI
+    last_rsi = df["RSI14"].iloc[-1] if "RSI14" in df.columns and not df["RSI14"].isna().all() else None
+    ai_signal = None
+    if current_cross and last_rsi is not None:
+        if current_cross == "Golden Cross" and last_rsi < 30:
+            ai_signal = "Strong Buy"
+        elif current_cross == "Golden Cross" and 30 <= last_rsi <= 70:
+            ai_signal = "Buy"
+        elif current_cross == "Golden Cross" and last_rsi > 70:
+            ai_signal = "Take Profit"
+        elif current_cross == "Death Cross" and last_rsi > 70:
+            ai_signal = "Strong Sell / Take Profit"
+        elif current_cross == "Death Cross" and 30 <= last_rsi <= 70:
+            ai_signal = "Sell / Avoid"
+        elif current_cross == "Death Cross" and last_rsi < 30:
+            ai_signal = "Watch / Potential Buy"
+        else:
+            ai_signal = "Hold/No Action"
+
+    return {"status": status, "current_cross": current_cross, "data": df, "ai_signal": ai_signal}
 
 @st.cache_data(ttl=CACHE_TTL)
 def analyze_stocks(tickers, period="2y", interval="1d"):
@@ -103,7 +138,6 @@ def analyze_stocks(tickers, period="2y", interval="1d"):
         results[ticker] = _analyze_single_ticker(ticker, df)
 
     return results
-
 
 @st.cache_data(ttl=3600)
 def search_ticker(query, limit=10):
