@@ -8,9 +8,9 @@ st.set_page_config(page_title="Stock Watchlist", page_icon="📈", layout="wide"
 st.title("📊 Stock Watchlist — Golden/Death Cross Tracker")
 
 # ------------------------------
-# Initialize Firebase
+# Initialize Firebase (UNCHANGED)
 # ------------------------------
-firebase_creds = dict(st.secrets["firebase"])  # Make sure secrets.toml has nested [firebase] keys
+firebase_creds = dict(st.secrets["firebase"])
 
 if not firebase_admin._apps:
     cred = credentials.Certificate(firebase_creds)
@@ -19,7 +19,7 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 # ------------------------------
-# Load watchlist from Firestore
+# Firestore Watchlist (UNCHANGED)
 # ------------------------------
 def get_watchlist():
     docs = db.collection("watchlist").stream()
@@ -28,7 +28,7 @@ def get_watchlist():
 watchlist = get_watchlist()
 
 # ------------------------------
-# Search box for ticker
+# Search box for ticker (UNCHANGED + minor UI improvement)
 # ------------------------------
 st.subheader("🔍 Add Tickers to Your Watchlist")
 
@@ -43,14 +43,14 @@ if query:
             if ticker not in watchlist:
                 db.collection("watchlist").add({"symbol": ticker})
                 st.success(f"✅ {ticker} added to watchlist!")
-                watchlist.append(ticker)  # Update local list immediately
+                st.rerun()
             else:
                 st.info(f"{ticker} is already in your watchlist.")
     else:
         st.warning("No matching tickers found. Try a different name.")
 
 # ------------------------------
-# Manage Watchlist
+# Manage Watchlist (UNCHANGED + st.rerun)
 # ------------------------------
 st.subheader("🗑️ Manage Watchlist")
 
@@ -59,83 +59,108 @@ if watchlist:
     st.write(", ".join(watchlist))
 
     remove_ticker = st.selectbox("Select a ticker to remove:", [""] + watchlist)
+
     if st.button("Remove"):
         if remove_ticker:
-            # Delete from Firestore
             docs = db.collection("watchlist").where("symbol", "==", remove_ticker).stream()
             for doc in docs:
                 doc.reference.delete()
             st.warning(f"❌ {remove_ticker} removed from watchlist.")
-            watchlist.remove(remove_ticker)
+            st.rerun()
 else:
     st.info("Your watchlist is empty. Add some tickers above 👆")
 
 # ------------------------------
-# Analyze tickers
+# Analyze tickers (ENHANCED)
 # ------------------------------
 if watchlist:
     st.divider()
     st.subheader("📈 Watchlist Analysis")
 
-    # --- Compact buttons side by side ---
-    col1, col2, col3, col4 = st.columns([0.3, 1, 1, 0.3])  # small spacing columns
+    col1, col2, col3, col4 = st.columns([0.3, 1, 1, 0.3])
     with col1:
         analyze_clicked = st.button("📊 Analyze Watchlist")
     with col4:
         refresh_clicked = st.button("🔄 Refresh Data")
 
-    # --- Handle refresh ---
     if refresh_clicked:
         st.cache_data.clear()
-        from cross_alert import analyze_stocks, search_ticker
-        analyze_stocks.clear()
-        search_ticker.clear()
         st.success("✅ Cache cleared — next analysis will fetch fresh data.")
 
-    # --- Handle analysis ---
     if analyze_clicked:
         with st.spinner("Analyzing tickers... please wait ⏳"):
-            results = analyze_stocks(watchlist, period="2y", interval="1d")  # ensure enough data for SMA200
+            results = analyze_stocks(watchlist, period="2y", interval="1d")
 
         rows = []
         for ticker, info in results.items():
-            data = info.get("data")
-            if data is not None and not data.empty:
-                last_row = data.iloc[-1]
-                close = last_row["Close"]
-                sma50 = last_row["SMA50"]
-                sma200 = last_row["SMA200"]
+            df_data = info.get("data")
+
+            if df_data is not None and not df_data.empty:
+                last_row = df_data.iloc[-1]
+                close = last_row.get("Close")
+                sma50 = last_row.get("SMA50")
+                sma200 = last_row.get("SMA200")
+                rsi = last_row.get("RSI14")
+                momentum = close - sma50 if close is not None and sma50 is not None else None
             else:
-                close, sma50, sma200 = None, None, None
+                close = sma50 = sma200 = rsi = momentum = None
+
+            # Human-based suggestion
+            if rsi is not None:
+                if rsi >= 70:
+                    suggest = "Take Profit"
+                elif rsi <= 30:
+                    suggest = "Buy Opportunity"
+                else:
+                    suggest = "Hold/No Action"
+            else:
+                suggest = "N/A"
 
             rows.append({
                 "Ticker": ticker,
                 "Close": close,
                 "50-MA": sma50,
                 "200-MA": sma200,
-                "Status": info["status"]
+                "RSI14": rsi,
+                "Momentum": momentum,
+                "Status": info.get("status"),
+                "Current Cross": info.get("current_cross"),
+                "Suggestion": suggest,
+                "AI Signal": info.get("ai_signal")
             })
 
         df = pd.DataFrame(rows)
 
-        # Define color style for Status
+        # ------------------------------
+        # Styling Enhancements
+        # ------------------------------
         def color_status(val):
             if "Golden" in str(val):
                 return "color: green; font-weight: bold;"
             elif "Death" in str(val):
                 return "color: red; font-weight: bold;"
-            elif "Insufficient" in str(val) or "Error" in str(val):
-                return "color: white;"
             else:
                 return "color: white;"
 
+        def color_rsi(val):
+            if val is None:
+                return ""
+            if val >= 70:
+                return "background-color: green; color: white; font-weight: bold;"
+            if val <= 30:
+                return "background-color: red; color: white; font-weight: bold;"
+            return ""
+
         styled_df = (
             df.style
-            .map(color_status, subset=["Status"])
+            .map(color_status, subset=["Status", "Current Cross"])
+            .map(color_rsi, subset=["RSI14"])
             .format({
                 "Close": "{:.2f}",
                 "50-MA": "{:.2f}",
-                "200-MA": "{:.2f}"
+                "200-MA": "{:.2f}",
+                "RSI14": "{:.2f}",
+                "Momentum": "{:.2f}"
             })
         )
 
